@@ -15,7 +15,7 @@ vehicle_model:
       cla: 3.7
       cda: 1.1
       aeroArea: 1.1
-    m: 178.0
+    m: 275.0
     Izz: 111.0
     wheelRadius: 0.206
     gearRatio: 12.23

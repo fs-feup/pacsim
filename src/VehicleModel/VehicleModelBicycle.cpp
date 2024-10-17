@@ -112,10 +112,138 @@ public:
     void setPosition(Eigen::Vector3d position) { this->position = position; }
     void setOrientation(Eigen::Vector3d orientation) { this->orientation = orientation; }
 
-    double processSlipAngleLat(double alpha)
+    int sign(double value)
     {
+        if (value > 0)
+            return 1;
+        if (value < 0)
+            return -1;
+        return 1; // For zero, return 1
+    }
+
+    double processSlipAngleLat(double alpha_input, double Fz)
+    {
+        double eps_k = 1e-6;
+        double eps_y = 1e-6;
+
+        double LONGVL = 10; 
+        double LMUY = 1.0;
+        double LVY = 0;
+        double LMUV = 0;
+        double LFZO = 1.0;
+
+        double LKYC = 1;
+        double LCY = 1.0;
+        double LEY = 1.0;
+        double LYKA = 1.0;
+        double LVYKA = 1.0;
+        double LKY = 1.0;
+
+        double NOMPRES = 100000;
+        double FNOM = 1500;
+
+        double PPY1 = 0.1;
+        double PPY2 = 0.1;
+        double PPY3 = 0;
+        double PPY4 = 0;
+        double PPY5 = 0;
+
+        double PVY1 = 0;
+        double PVY2 = 0;
+        double PVY3 = 0;
+        double PVY4 = 0;
+
+        double PKY1 = -20;
+        double PKY2 = 2;
+        double PKY3 = 0;
+        double PKY4 = 2;
+        double PKY5 = 0;
+        double PKY6 = 0;
+        double PKY7 = 0;
+
+        double PDY1 = 0.8;
+        double PDY2 = -0.05;
+        double PDY3 = 0;
+
+        double PHY1 = 0;
+        double PHY2 = 0;
+
+        double PEY1 = -0.8;
+        double PEY2 = -0.6;
+        double PEY3 = 0.1;
+        double PEY4 = 0;
+        double PEY5 = 0;
+
+        double RCY1 = 1.0;
+
+        double RBY1 = 5.0;
+        double RBY2 = 2;
+        double RBY3 = 0.02;
+        double RBY4 = 0;
+
+        double REY1 = -0.1;
+        double REY2 = 0.1;
+
+        double RHY1 = 0;
+        double RHY2 = 0;
+
+        double RVY1 = 0;
+        double RVY2 = 0;
+        double RVY3 = 0;
+        double RVY4 = 0;
+        double RVY5 = 0;
+        double RVY6 = 0;
+
+        double PCY1 = 2.0;
+
+        double slip_ratio = 0;
+        double y_input = 0;
+        double p_input = 82737;
+        double V_cx = 0; // not zero but it gets multiplied by 0;
+
         // Calculate the lateral force coefficient (bounded at -1 to 1) using the tire model parameters and slip angle
-        return std::sin(Clat * std::atan(Blat * alpha - Elat * (Blat * alpha - std::atan(Blat * alpha))));
+        // return std::sin(Clat * std::atan(Blat * alpha - Elat * (Blat * alpha - std::atan(Blat * alpha))));
+
+        // Is this supposed to be 1?
+        double zeta_0 = 1;
+        double zeta_4 = 1.0; //ones(size(Fz));
+        double zeta_3 = 1.0; //ones(size(Fz));
+        double zeta_2 = 1.0; //ones(size(Fz));
+        double dpi = (p_input - NOMPRES) / NOMPRES;
+        double Fz_0_prime = LFZO * FNOM;
+        double Kya = PKY1 * Fz_0_prime * (1 + PPY1 * dpi) * (1 - PKY3 * abs(y_input))
+            * sin(PKY4 * atan((Fz / Fz_0_prime) / ((PKY2 + PKY5 * y_input * y_input) * (1 + PPY2 * dpi)))) * zeta_3
+            * LKY;
+        double dfz = (Fz - Fz_0_prime) / Fz_0_prime;
+        double Kyg0 = Fz * (PKY6 + PKY7 * dfz) * (1 + PPY5 * dpi) * LKYC;
+        double Vs_y = tan(alpha_input) * abs(V_cx);
+        double Vs_x = -slip_ratio * abs(V_cx);
+        double Vs = sqrt(Vs_x * Vs_x + Vs_y * Vs_y);
+        double V0 = LONGVL;
+        double LMUY_star = LMUY / (1.0 + LMUV * (Vs / V0));
+        double SVyg = Fz * (PVY3 + PVY4 * dfz) * y_input * LKYC * LMUY_star * zeta_2;
+        double SHy
+            = (PHY1 + PHY2 * dfz) + ((Kyg0 * y_input - SVyg) / (Kya + eps_k * sign(Kya))) * zeta_0 + zeta_4 - 1.0;
+        double alpha_y = alpha_input + SHy;
+        double Ey
+            = (PEY1 + PEY2 * dfz) * (1 + PEY5 * y_input * y_input - (PEY3 + PEY4 * y_input) * sign(alpha_y)) * LEY;
+        double Cy = PCY1 * LCY;
+        double mu_y = (PDY1 + PDY2 * dfz) * (1.0 + PPY3 * dpi + PPY4 * dpi * dpi) * (1.0 - PDY3 * y_input * y_input)
+            * LMUY_star;
+        double Dy = mu_y * Fz * zeta_2;
+        double By = Kya / (Cy * Dy + eps_y * sign(Dy));
+        double DVyk = mu_y * Fz * (RVY1 + RVY2 * dfz + RVY3 * y_input) * cos(atan(RVY4 * alpha_input)) * zeta_2;
+        double SVyk = DVyk * sin(RVY5 * atan(RVY6 * slip_ratio)) * LVYKA;
+        double Eyk = REY1 + REY2 * dfz;
+        double SHyk = RHY1 + RHY2 * dfz;
+        double ks = slip_ratio + SHyk;
+        double Byk = (RBY1 + RBY4 * y_input * y_input) * cos(atan(RBY2 * (alpha_input - RBY3))) * LYKA;
+        double Cyk = RCY1;
+        double Gyk_0 = cos(Cyk * atan(Byk * SHyk - Eyk * (Byk * SHyk - atan(Byk * SHyk))));
+        double Gyk = (cos(Cyk * atan(Byk * ks - Eyk * (Byk * ks - atan(Byk * ks)))) / Gyk_0);
+        double SVy = Fz * (PVY1 + PVY2 * dfz) * LVY * LMUY_star * zeta_2 + SVyg;
+        double Fy_0 = Dy * sin(Cy * atan(By * alpha_y - Ey * (By * alpha_y - atan(By * alpha_y)))) + SVy;
+        double Fy = Gyk * Fy_0 + SVyk;
     }
 
     // Calculate dynamic states (ax, ay, rdot) based on the current state and time step
@@ -185,10 +313,10 @@ public:
         Fx_RR *= (((this->torques.RR) > 0.5) || (vCog.x() > 0.3)) ? 1.0 : 0.0;
 
         // Calculate lateral forces on the front and rear axles
-        double Dlat_Front = this->Dlat * Fz_Front;
-        double Dlat_Rear = this->Dlat * Fz_Rear;
-        double Fy_Front = Dlat_Front * processSlipAngleLat(kappaFront);
-        double Fy_Rear = Dlat_Rear * processSlipAngleLat(kappaRear);
+        // double Dlat_Front = this->Dlat * Fz_Front;
+        // double Dlat_Rear = this->Dlat * Fz_Rear;
+        double Fy_Front = /* Dlat_Front * */ processSlipAngleLat(kappaFront, Fz_Front);
+        double Fy_Rear = /* Dlat_Rear * */ processSlipAngleLat(kappaRear, Fz_Rear);
 
         // Convert wheel speeds to RPM
         this->wheelspeeds.FL = vFL.x() / rpm2ms;
@@ -289,7 +417,7 @@ private:
     double aeroArea = 1.1;
 
     // Vehicle mass and inertia
-    double m = 178.0;
+    double m = 275.0;
     double Izz = 111.0;
 
     // Wheel and steering parameters
