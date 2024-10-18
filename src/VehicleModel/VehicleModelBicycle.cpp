@@ -1,4 +1,5 @@
 #include "VehicleModel/VehicleModelInterface.hpp"
+#include "VehicleModel/VehicleModeConfig.hpp"
 
 #include "transform.hpp"
 class VehicleModelBicycle : public IVehicleModel
@@ -123,92 +124,8 @@ public:
 
     double processSlipAngleLat(double alpha_input, double Fz)
     {
-        double eps_k = 1e-6;
-        double eps_y = 1e-6;
+        using namespace VehicleModelConstants;
 
-        double LONGVL = 10; 
-        double LMUY = 1.0;
-        double LVY = 0;
-        double LMUV = 0;
-        double LFZO = 1.0;
-
-        double LKYC = 1;
-        double LCY = 1.0;
-        double LEY = 1.0;
-        double LYKA = 1.0;
-        double LVYKA = 1.0;
-        double LKY = 1.0;
-
-        double NOMPRES = 100000;
-        double FNOM = 1500;
-
-        double PPY1 = 0.1;
-        double PPY2 = 0.1;
-        double PPY3 = 0;
-        double PPY4 = 0;
-        double PPY5 = 0;
-
-        double PVY1 = 0;
-        double PVY2 = 0;
-        double PVY3 = 0;
-        double PVY4 = 0;
-
-        double PKY1 = -20;
-        double PKY2 = 2;
-        double PKY3 = 0;
-        double PKY4 = 2;
-        double PKY5 = 0;
-        double PKY6 = 0;
-        double PKY7 = 0;
-
-        double PDY1 = 0.8;
-        double PDY2 = -0.05;
-        double PDY3 = 0;
-
-        double PHY1 = 0;
-        double PHY2 = 0;
-
-        double PEY1 = -0.8;
-        double PEY2 = -0.6;
-        double PEY3 = 0.1;
-        double PEY4 = 0;
-        double PEY5 = 0;
-
-        double RCY1 = 1.0;
-
-        double RBY1 = 5.0;
-        double RBY2 = 2;
-        double RBY3 = 0.02;
-        double RBY4 = 0;
-
-        double REY1 = -0.1;
-        double REY2 = 0.1;
-
-        double RHY1 = 0;
-        double RHY2 = 0;
-
-        double RVY1 = 0;
-        double RVY2 = 0;
-        double RVY3 = 0;
-        double RVY4 = 0;
-        double RVY5 = 0;
-        double RVY6 = 0;
-
-        double PCY1 = 2.0;
-
-        double slip_ratio = 0;
-        double y_input = 0;
-        double p_input = 82737;
-        double V_cx = 0; // not zero but it gets multiplied by 0;
-
-        // Calculate the lateral force coefficient (bounded at -1 to 1) using the tire model parameters and slip angle
-        // return std::sin(Clat * std::atan(Blat * alpha - Elat * (Blat * alpha - std::atan(Blat * alpha))));
-
-        // Is this supposed to be 1?
-        double zeta_0 = 1;
-        double zeta_4 = 1.0; //ones(size(Fz));
-        double zeta_3 = 1.0; //ones(size(Fz));
-        double zeta_2 = 1.0; //ones(size(Fz));
         double dpi = (p_input - NOMPRES) / NOMPRES;
         double Fz_0_prime = LFZO * FNOM;
         double Kya = PKY1 * Fz_0_prime * (1 + PPY1 * dpi) * (1 - PKY3 * abs(y_input))
@@ -244,6 +161,8 @@ public:
         double SVy = Fz * (PVY1 + PVY2 * dfz) * LVY * LMUY_star * zeta_2 + SVyg;
         double Fy_0 = Dy * sin(Cy * atan(By * alpha_y - Ey * (By * alpha_y - atan(By * alpha_y)))) + SVy;
         double Fy = Gyk * Fy_0 + SVyk;
+
+        return Fy;
     }
 
     // Calculate dynamic states (ax, ay, rdot) based on the current state and time step
@@ -315,8 +234,9 @@ public:
         // Calculate lateral forces on the front and rear axles
         // double Dlat_Front = this->Dlat * Fz_Front;
         // double Dlat_Rear = this->Dlat * Fz_Rear;
-        double Fy_Front = /* Dlat_Front * */ processSlipAngleLat(kappaFront, Fz_Front);
-        double Fy_Rear = /* Dlat_Rear * */ processSlipAngleLat(kappaRear, Fz_Rear);
+        double Fy_Front = /* Dlat_Front * */ processSlipAngleLat(kappaFront, Fz_Front/2) * 2;
+        double Fy_Rear = /* Dlat_Rear * */ processSlipAngleLat(kappaRear, Fz_Rear/2) * 2;
+        printf("Fy_Front: %f, Fy_Rear: %f\n", Fy_Front, Fy_Rear);
 
         // Convert wheel speeds to RPM
         this->wheelspeeds.FL = vFL.x() / rpm2ms;
