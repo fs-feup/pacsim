@@ -44,6 +44,10 @@ public:
         configModel.getElement<double>(&this->gearRatio, "gearRatio");
         configModel.getElement<double>(&this->innerSteeringRatio, "innerSteeringRatio");
         configModel.getElement<double>(&this->innerSteeringRatio, "innerSteeringRatio");
+        configModel.getElement<double>(&this->nominalVoltageTS, "nominalVoltageTS");
+        configModel.getElement<double>(&this->powerGroundForce, "powerGroundForce");
+        configModel.getElement<double>(&this->powertrainEfficiency, "powertrainEfficiency");
+
         return true;
     }
 
@@ -73,13 +77,37 @@ public:
                                              : this->steeringAngles.FL / this->outerSteeringRatio;
     }
 
+    double getVoltageTS() { return this->nominalVoltageTS; }
+
+    double getCurrentTS()
+    {
+        double powerCoeff = 1.0 / 9.55;
+        double powerFL = this->torques.FL * this->wheelspeeds.FL * powerCoeff;
+        double powerFR = this->torques.FR * this->wheelspeeds.FR * powerCoeff;
+        double powerRL = this->torques.RL * this->wheelspeeds.RL * powerCoeff;
+        double powerRR = this->torques.RR * this->wheelspeeds.RR * powerCoeff;
+        double totalPower = (powerFL + powerFR + powerRL + powerRR) / powertrainEfficiency;
+
+        return (totalPower / this->nominalVoltageTS);
+    }
+
     Wheels getWheelspeeds() { return this->wheelspeeds; }
 
     Wheels getWheelOrientations() { return this->wheelOrientations; }
 
     Wheels getTorques() { return this->torques; }
 
-    // Setters for various vehicle states
+    std::array<Eigen::Vector3d, 4> getWheelPositions()
+    {
+        auto rotMat = eulerAnglesToRotMat(this->orientation).transpose();
+        Eigen::Vector3d FL = rotMat * Eigen::Vector3d(this->lf, this->sf * 0.5, 0.0) + this->position;
+        Eigen::Vector3d FR = rotMat * Eigen::Vector3d(this->lf, -this->sf * 0.5, 0.0) + this->position;
+        Eigen::Vector3d RL = rotMat * Eigen::Vector3d(-this->lr, this->sr * 0.5, 0.0) + this->position;
+        Eigen::Vector3d RR = rotMat * Eigen::Vector3d(-this->lr, -this->sr * 0.5, 0.0) + this->position;
+        std::array<Eigen::Vector3d, 4> ret { FL, FR, RL, RR };
+        return ret;
+    }
+
     void setTorques(Wheels in) { this->torques = in; }
 
     void setRpmSetpoints(Wheels in) { this->rpmSetpoints = in; }
@@ -91,6 +119,8 @@ public:
     void setSteeringSetpointFront(double in) { setSteeringFront(in); }
 
     void setSteeringSetpointRear(double in) { return; }
+
+    void setPowerGroundSetpoint(double in) { this->powerGroundSetpoint = std::min(std::max(in, 0.0), 1.0); }
 
     void setSteeringFront(double in)
     {
@@ -118,8 +148,8 @@ public:
         return std::sin(Clat * std::atan(Blat * alpha - Elat * (Blat * alpha - std::atan(Blat * alpha))));
     }
 
-    // Calculate dynamic states (ax, ay, rdot) based on the current state and time step
-    Eigen::Vector3d getDynamicStates(double dt)
+    // ax, ay, rdot
+    Eigen::Vector3d getDynamicStates(double dt, Wheels frictionCoefficients)
     {
         double l = this->lr + this->lf;
         double vx = this->velocity.x();
@@ -128,7 +158,8 @@ public:
         double ay = this->acceleration.y();
         double r = this->angularVelocity.z();
         // Downforce
-        double F_aero_downforce = 0.5 * 1.29 * this->aeroArea * this->cla * (vx * vx);
+        double F_aero_downforce
+            = 0.5 * 1.29 * this->aeroArea * this->cla * (vx * vx) + this->powerGroundSetpoint * this->powerGroundForce;
         double F_aero_drag = 0.5 * 1.29 * this->aeroArea * this->cda * (vx * vx);
         double g = 9.81;
         double steeringFront = 0.5 * (this->steeringAngles.FL + this->steeringAngles.FR);
@@ -184,9 +215,9 @@ public:
         Fx_RL *= (((this->torques.RL) > 0.5) || (vCog.x() > 0.3)) ? 1.0 : 0.0;
         Fx_RR *= (((this->torques.RR) > 0.5) || (vCog.x() > 0.3)) ? 1.0 : 0.0;
 
-        // Calculate lateral forces on the front and rear axles
-        double Dlat_Front = this->Dlat * Fz_Front;
-        double Dlat_Rear = this->Dlat * Fz_Rear;
+        double Dlat_Front = 0.5 * (frictionCoefficients.FL + frictionCoefficients.FR) * this->Dlat * Fz_Front;
+        double Dlat_Rear = 0.5 * (frictionCoefficients.RL + frictionCoefficients.RR) * this->Dlat * Fz_Rear;
+
         double Fy_Front = Dlat_Front * processSlipAngleLat(kappaFront);
         double Fy_Rear = Dlat_Rear * processSlipAngleLat(kappaRear);
 
@@ -221,8 +252,7 @@ public:
         return ret;
     }
 
-    // Integrate the vehicle state forward in time by dt
-    void forwardIntegrate(double dt)
+    void forwardIntegrate(double dt, Wheels frictionCoefficients)
     {
         // Calculate friction forces
         Eigen::Vector3d friction(std::min(200.0, 2000.0 * std::abs(this->velocity.x())),
@@ -239,8 +269,7 @@ public:
         // Set torques to maximum torques
         this->torques = this->maxTorques;
 
-        // Get dynamic states
-        Eigen::Vector3d xdotdyn = getDynamicStates(dt);
+        Eigen::Vector3d xdotdyn = getDynamicStates(dt, frictionCoefficients);
 
         // Update orientation based on angular velocity
         this->orientation += Eigen::Vector3d(0.0, 0.0, dt * angularVelocity.z());
@@ -297,6 +326,10 @@ private:
     double gearRatio = 12.23;
     double innerSteeringRatio = 0.255625;
     double outerSteeringRatio = 0.20375;
+    double nominalVoltageTS = 550.0;
+    double powerGroundSetpoint = 0.0;
+    double powerGroundForce = 700.0;
+    double powertrainEfficiency = 1.0;
 
     // Wheel torques and speeds
     Wheels minTorques = { -0.0, -0.0, -0.0, -0.0 };
