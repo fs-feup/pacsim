@@ -45,6 +45,10 @@ public:
         configModel.getElement<double>(&this->gearRatio, "gearRatio");
         configModel.getElement<double>(&this->innerSteeringRatio, "innerSteeringRatio");
         configModel.getElement<double>(&this->innerSteeringRatio, "innerSteeringRatio");
+        configModel.getElement<double>(&this->nominalVoltageTS, "nominalVoltageTS");
+        configModel.getElement<double>(&this->powerGroundForce, "powerGroundForce");
+        configModel.getElement<double>(&this->powertrainEfficiency, "powertrainEfficiency");
+
         return true;
     }
 
@@ -74,6 +78,20 @@ public:
                                              : this->steeringAngles.FL / this->outerSteeringRatio;
     }
 
+    double getVoltageTS() { return this->nominalVoltageTS; }
+
+    double getCurrentTS()
+    {
+        double powerCoeff = 1.0 / 9.55;
+        double powerFL = this->torques.FL * this->wheelspeeds.FL * powerCoeff;
+        double powerFR = this->torques.FR * this->wheelspeeds.FR * powerCoeff;
+        double powerRL = this->torques.RL * this->wheelspeeds.RL * powerCoeff;
+        double powerRR = this->torques.RR * this->wheelspeeds.RR * powerCoeff;
+        double totalPower = (powerFL + powerFR + powerRL + powerRR) / powertrainEfficiency;
+
+        return (totalPower / this->nominalVoltageTS);
+    }
+
     Wheels getWheelspeeds() { return this->wheelspeeds; }
 
     Wheels getWheelOrientations() { return this->wheelOrientations; }
@@ -92,6 +110,8 @@ public:
     void setSteeringSetpointFront(double in) { setSteeringFront(in); }
 
     void setSteeringSetpointRear(double in) { return; }
+
+    void setPowerGroundSetpoint(double in) { this->powerGroundSetpoint = std::min(std::max(in, 0.0), 1.0); }
 
     void setSteeringFront(double in)
     {
@@ -175,7 +195,8 @@ public:
         double ay = this->acceleration.y();
         double r = this->angularVelocity.z();
         // Downforce
-        double F_aero_downforce = 0.5 * 1.29 * this->aeroArea * this->cla * (vx * vx);
+        double F_aero_downforce
+            = 0.5 * 1.29 * this->aeroArea * this->cla * (vx * vx) + this->powerGroundSetpoint * this->powerGroundForce;
         double F_aero_drag = 0.5 * 1.29 * this->aeroArea * this->cda * (vx * vx);
         double g = 9.81;
         double steeringFront = 0.5 * (this->steeringAngles.FL + this->steeringAngles.FR);
@@ -345,6 +366,10 @@ private:
     double gearRatio = 12.23;
     double innerSteeringRatio = 0.255625;
     double outerSteeringRatio = 0.20375;
+    double nominalVoltageTS = 550.0;
+    double powerGroundSetpoint = 0.0;
+    double powerGroundForce = 700.0;
+    double powertrainEfficiency = 1.0;
 
     // Wheel torques and speeds
     Wheels minTorques = { -0.0, -0.0, -0.0, -0.0 };
